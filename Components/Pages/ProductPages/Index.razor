@@ -1,0 +1,244 @@
+﻿@page "/products"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.QuickGrid
+@using CrudOprUsingBlazor.Models
+@using CrudOprUsingBlazor.Data
+@using System.Linq
+@implements IAsyncDisposable
+@inject IDbContextFactory<CrudOprUsingBlazor.Data.MyAppDB> DbFactory
+
+
+
+<PageTitle>Products</PageTitle>
+
+<h1>Products</h1>
+
+<p>
+    <a href="products/create" class="btn btn-primary">Create New</a>
+</p>
+
+
+<div>
+    <input type="text" @bind-value="searchTerm" @oninput="SearchProductsAsync" placeholder="Search by name..." class="form-control" />
+</div>
+
+
+@if (filteredProducts.Any())
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th @onclick="SortByName">
+                    Product Name @GetSortIcon("name")
+                </th>
+                <th @onclick="SortByPrice">
+                    Price @GetSortIcon("price")
+                </th>
+                <th @onclick="SortByQty">
+                    Quantity @GetSortIcon("Qty")
+                </th>
+                <th>Actions</th>
+             </tr> 
+        </thead>
+        <tbody>
+            @foreach (var product in filteredProducts)
+            {
+                <tr>
+                    <td>@product.name</td>
+                    <td>@product.price</td>
+                    <td>@product.Qty</td>
+                    <td>
+                        <a href="@($"products/edit?id={product.id}")" class="btn btn-info">Edit</a> |
+                        <a href="@($"products/details?id={product.id}")" class="btn btn-success">Details</a> |
+                        <a href="@($"products/delete?id={product.id}")" class="btn btn-danger">Delete</a> |
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    
+    <div class="pagination">
+        <button class="btn btn-secondary" @onclick="GoToPreviousPage" disabled="@(!CanGoToPreviousPage)">Previous</button>
+        <span>Page @currentPage of @totalPages</span>
+        <button class="btn btn-secondary" @onclick="GoToNextPage" disabled="@(!CanGoToNextPage)">Next</button>
+    </div>
+}
+else
+{
+    <p>No products found matching your search.</p>
+}
+
+@code {
+    private MyAppDB context = default!;
+    private string searchTerm = string.Empty;
+    private List<Product> allProducts = new List<Product>();
+    private List<Product> filteredProducts = new List<Product>();
+    private int currentPage = 1;
+    private int pageSize = 5; 
+    private int totalPages = 1;
+    private string sortColumn = "name";  
+    private bool isAscending = true; 
+    private CancellationTokenSource? _cts;
+
+
+    
+    protected override async Task OnInitializedAsync()
+    {
+        context = DbFactory.CreateDbContext();
+        await LoadProductsAsync();
+        CalculateTotalPages();
+        UpdatePagedProducts();
+    }
+
+   
+    private async Task LoadProductsAsync()
+    {
+        var query = context.Product.AsQueryable();
+
+        
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            query = query.Where(p => EF.Functions.Like(p.name, $"%{searchTerm}%"));
+        }
+
+        
+        query = ApplySorting(query);
+
+       
+        allProducts = await query.ToListAsync();
+
+        // Update pagination and filtered products
+        CalculateTotalPages();
+        UpdatePagedProducts();
+    }
+
+
+
+
+    private void CalculateTotalPages()
+    {
+        totalPages = (int)Math.Ceiling(allProducts.Count / (double)pageSize);
+    }
+
+   
+    private void UpdatePagedProducts()
+    {
+        filteredProducts = allProducts
+            .Skip((currentPage - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+    }
+
+    private Timer? _searchTimer;
+   
+    
+    // }
+
+    private async Task SearchProductsAsync()
+    {
+        
+        _cts?.Cancel();
+
+        
+        _cts = new CancellationTokenSource();
+
+        try
+        {
+          
+            await Task.Delay(1000, _cts.Token);
+            await LoadProductsAsync();
+        }
+        catch (TaskCanceledException)
+        {
+            
+        }
+    }
+
+
+    
+
+    private IQueryable<Product> ApplySorting(IQueryable<Product> query)
+    {
+        return sortColumn switch
+        {
+            "price" => isAscending ? query.OrderBy(p => p.price) : query.OrderByDescending(p => p.price),
+            "Qty" => isAscending ? query.OrderBy(p => p.Qty) : query.OrderByDescending(p => p.Qty),
+            "name" => isAscending ? query.OrderBy(p => p.name) : query.OrderByDescending(p => p.name),
+        };
+    }
+
+
+  
+    private void GoToPreviousPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+            UpdatePagedProducts();
+        }
+    }
+
+    private void GoToNextPage()
+    {
+        if (currentPage < totalPages)
+        {
+            currentPage++;
+            UpdatePagedProducts();
+        }
+    }
+
+  
+    private bool CanGoToPreviousPage => currentPage > 1;
+
+  
+    private bool CanGoToNextPage => currentPage < totalPages;
+
+    private void SortByName()
+    {
+        SortProducts("name");
+    }
+
+    
+    private void SortByPrice()
+    {
+        SortProducts("price");
+    }
+
+    
+    private void SortByQty()
+    {
+        SortProducts("Qty");
+    }
+
+
+    
+    private void SortProducts(string column)
+    {
+        if (sortColumn == column)
+        {
+            isAscending = !isAscending; // Toggle sort direction
+        }
+        else
+        {
+            sortColumn = column;
+            isAscending = true;
+        }
+
+        
+        LoadProductsAsync();
+    }
+
+    
+    private string GetSortIcon(string column)
+    {
+        if (sortColumn == column)
+        {
+            return isAscending ? "↑" : "↓";
+        }
+        return string.Empty;
+    }
+
+    public async ValueTask DisposeAsync() => await context.DisposeAsync();
+}
